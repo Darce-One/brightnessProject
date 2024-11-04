@@ -1,0 +1,6 @@
+essentia
+matplotlib
+scipy
+librosa
+numpy<2
+soundfile
