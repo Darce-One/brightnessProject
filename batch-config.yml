@@ -1,0 +1,9 @@
+input_folder: ./sounds/input/
+output_folder: ./sounds/output/
+sample_rate: 44100
+bandwidths:
+  - 2000
+  - 5000
+  - 10000
+normalization: true
+target: -15

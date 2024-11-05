@@ -44,7 +44,7 @@ def get_centroid_avg(audio_array: np.ndarray, fs: int) -> float:
     return avg_centroid
 
 
-def apply_bandpass(audio_array: np.ndarray, band_width: float, fs: int) -> np.ndarray:
+def apply_bandpass(audio_array: np.ndarray, band_width: float, fs: int, verbose: bool=True) -> np.ndarray:
     # find the initial centroid - this will need to be the centroid after bandpassing!
     target_centroid = get_centroid_avg(audio_array, fs)
 
@@ -54,7 +54,8 @@ def apply_bandpass(audio_array: np.ndarray, band_width: float, fs: int) -> np.nd
 
     # get the actual centroid after bandpass
     actual_centroid = get_centroid_avg(bp_audio, fs)
-    print(f"intermediary centroid: {actual_centroid}")
+    if verbose:
+        print(f"intermediary centroid: {actual_centroid}")
 
     # set up gradient descent
     test_centroid = target_centroid
@@ -67,7 +68,8 @@ def apply_bandpass(audio_array: np.ndarray, band_width: float, fs: int) -> np.nd
         bp_audio = bp_instance(audio_array)
         actual_centroid = get_centroid_avg(bp_audio, fs)
         iter += 1
-        print(f"intermediary centroid: {actual_centroid}")
+        if verbose:
+            print(f"intermediary centroid: {actual_centroid}")
 
     print(f'bp_centroid: {actual_centroid}')
     return bp_audio
