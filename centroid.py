@@ -4,6 +4,7 @@ import librosa
 import numpy as np
 from scipy.fftpack import fft
 import soundfile as sf
+import pyloudnorm as pyln
 from argparse import ArgumentParser, Namespace
 # import matplotlib.pyplot as plt
 
@@ -18,6 +19,8 @@ def parse_arguments() -> Namespace:
     parser.add_argument('-r', '--width_ratio', type=float, required=False)
     parser.add_argument('-f', '--file_name', type=str, required=True, help="Specifies the audio file to \
         apply the filter to")
+    parser.add_argument('-o', '--offset_ratio', type=float, default=1.0, help="shifts the target centroid proportionally\
+        to the centroid frequency")
     parser.add_argument('-s', '--sample_rate', type=int, default=44100, help="Sets the sample rate")
 
     # Parse args
@@ -44,9 +47,9 @@ def get_centroid_avg(audio_array: np.ndarray, fs: int) -> float:
     return avg_centroid
 
 
-def apply_bandpass(audio_array: np.ndarray, band_width: float, fs: int, verbose: bool=True) -> np.ndarray:
+def apply_bandpass(audio_array: np.ndarray, band_width: float, fs: int, offset_ratio: float = 1, verbose: bool=True) -> np.ndarray:
     # find the initial centroid - this will need to be the centroid after bandpassing!
-    target_centroid = get_centroid_avg(audio_array, fs)
+    target_centroid = get_centroid_avg(audio_array, fs) * offset_ratio
 
     # create the bandpass filter and apply it initially
     bp_instance = ess.BandPass(bandwidth=band_width, cutoffFrequency=target_centroid, sampleRate=fs)
@@ -71,13 +74,37 @@ def apply_bandpass(audio_array: np.ndarray, band_width: float, fs: int, verbose:
         if verbose:
             print(f"intermediary centroid: {actual_centroid}")
 
-    print(f'bp_centroid: {actual_centroid}')
+        if iter > 29:
+            raise TimeoutError("Couldn't converge the bandpass to centroid")
+
+    if verbose:
+        print(f'bp_centroid: {actual_centroid}')
     return bp_audio
 
 
 def get_mag_spec(audio_array: np.ndarray) -> np.ndarray:
     return np.abs(fft(audio_array))
 
+
+def normalise_LUFS(audio_in: np.ndarray, target_lufs: float, fs: float) -> np.ndarray:
+    meter = pyln.Meter(fs) # create BS.1770 meter
+    loudness_in_lufs = meter.integrated_loudness(audio_in) # measure loudness
+    db_diff = target_lufs - loudness_in_lufs
+    amplitude_gain = 10 ** (db_diff/20)
+    # print(f"db_diff: {db_diff}, db amplitude gain: {amplitude_gain}")
+    normalised_audio = audio_in * amplitude_gain
+    clips = np.max(np.abs(normalised_audio)) > 1.0
+    if clips:
+        raise AttributeError("Audio clips")
+    return normalised_audio
+
+def calculate_spectral_variance(audio_array: np.ndarray, spectral_centroid: float, fs:float) -> float:
+    mX_full = get_mag_spec(audio_array)
+    N = mX_full.size
+    mX = mX_full[:int(N/2 + 1)]
+    freqs = np.arange(N)[:int(N/2 + 1)] * fs / N
+    variance = np.sqrt(np.sum(((freqs - spectral_centroid)**2) * mX) / np.sum(mX))
+    return variance
 
 def synthesise_sine(time_in_sec: float, fs: int, frequency: float, amplitude: float) -> np.ndarray:
     time_in_samples = int(fs * time_in_sec)
@@ -96,16 +123,21 @@ def main():
     file_name = args.file_name
 
     # input sounds
-    audio_array, _ = librosa.load(f'sounds/{file_name}', mono=True, sr=fs)
+    audio_array, _ = librosa.load(f'sounds/input/{file_name}', mono=True, sr=fs)
 
     # get target_centroid
     centroid_avg = get_centroid_avg(audio_array, fs)
+    variance = calculate_spectral_variance(audio_array, centroid_avg, fs)
     print(f'centroid average = {centroid_avg}')
+    print(f"initial variance: {variance}")
 
     # apply bandpass
     bandwidth = get_bandwidth(args, centroid_avg)
-    bp_audio = apply_bandpass(audio_array, band_width=bandwidth, fs=fs)
-    sf.write(f'sounds/outs/bp_w_{int(bandwidth)}_{file_name}', bp_audio, fs)
+    bp_audio = apply_bandpass(audio_array, band_width=bandwidth, fs=fs, offset_ratio=args.offset_ratio, verbose=False)
+    normalised_audio = normalise_LUFS(bp_audio, -25, fs)
+    variance = calculate_spectral_variance(normalised_audio, centroid_avg, fs)
+    print(f"output variance: {variance}")
+    sf.write(f'sounds/output/bp_w_{int(bandwidth)}_{file_name}', normalised_audio, fs)
 
 
 if __name__ == "__main__":
