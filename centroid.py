@@ -102,8 +102,9 @@ def apply_bandpass_binarysearch(audio_array: np.ndarray, band_width: float, fs: 
         bp_instance = ess.BandPass(bandwidth=band_width, cutoffFrequency=cutoff, sampleRate=fs)
         bp_audio = bp_instance(audio_array)
         actual_centroid = get_centroid_avg(bp_audio, fs)
-        print(f"target: {target_centroid}, actual: {actual_centroid}")
-        print(f"lower: {lower_bound}, upper: {upper_bound}, cutoff: {cutoff}")
+        if verbose:
+            print(f"target: {target_centroid}, actual: {actual_centroid}")
+            print(f"lower: {lower_bound}, upper: {upper_bound}, cutoff: {cutoff}")
 
     return bp_audio
 
