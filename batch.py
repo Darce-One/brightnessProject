@@ -65,7 +65,7 @@ def batch_run(config: dict):
         for bw in config['bandwidths']:
             try:
                 print(f"Processing file {filename} with bandwidth {bw}...")
-                out_audio = centroid.apply_bandpass(audio, bw, fs, verbose=False)
+                out_audio = centroid.apply_bandpass_binarysearch(audio, bw, fs, verbose=False)
 
                 # Apply normalization if needed
                 if config['normalisation']:

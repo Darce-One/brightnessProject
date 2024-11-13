@@ -82,6 +82,32 @@ def apply_bandpass(audio_array: np.ndarray, band_width: float, fs: int, offset_r
     return bp_audio
 
 
+def apply_bandpass_binarysearch(audio_array: np.ndarray, band_width: float, fs: int, offset_ratio: float = 1, verbose: bool=True) -> np.ndarray:
+    target_centroid = get_centroid_avg(audio_array, fs) * offset_ratio
+
+    lower_bound = 0
+    upper_bound = fs/2
+    cutoff = (lower_bound + upper_bound) / 2
+
+    bp_instance = ess.BandPass(bandwidth=band_width, cutoffFrequency=cutoff, sampleRate=fs)
+    bp_audio = bp_instance(audio_array)
+
+    actual_centroid = get_centroid_avg(bp_audio, fs)
+    while abs(target_centroid - actual_centroid) > 1:
+        if actual_centroid > target_centroid:
+            upper_bound = cutoff
+        else:
+            lower_bound = cutoff
+        cutoff = (lower_bound + upper_bound) / 2
+        bp_instance = ess.BandPass(bandwidth=band_width, cutoffFrequency=cutoff, sampleRate=fs)
+        bp_audio = bp_instance(audio_array)
+        actual_centroid = get_centroid_avg(bp_audio, fs)
+        print(f"target: {target_centroid}, actual: {actual_centroid}")
+        print(f"lower: {lower_bound}, upper: {upper_bound}, cutoff: {cutoff}")
+
+    return bp_audio
+
+
 def get_mag_spec(audio_array: np.ndarray) -> np.ndarray:
     return np.abs(fft(audio_array))
 
@@ -106,6 +132,16 @@ def calculate_spectral_variance(audio_array: np.ndarray, spectral_centroid: floa
     variance = np.sqrt(np.sum(((freqs - spectral_centroid)**2) * mX) / np.sum(mX))
     return variance
 
+def calculate_Lower_upper_spectral_variance(audio_array: np.ndarray, spectral_centroid: float, fs:float) -> tuple[float, float]:
+    mX_full = get_mag_spec(audio_array)
+    N = mX_full.size
+    mX = mX_full[:int(N/2 + 1)]
+    freqs = np.arange(N)[:int(N/2 + 1)] * fs / N
+    lower_freqs = freqs[freqs < spectral_centroid]
+    lower_variance = np.sqrt(np.sum(((lower_freqs - spectral_centroid)**2) * mX[:lower_freqs.size]) / np.sum(mX[:lower_freqs.size]))
+    higher_variance = np.sqrt(np.sum(((freqs[freqs > spectral_centroid] - spectral_centroid)**2) * mX[lower_freqs.size:]) / np.sum(mX[lower_freqs.size:]))
+    return lower_variance, higher_variance
+
 def synthesise_sine(time_in_sec: float, fs: int, frequency: float, amplitude: float) -> np.ndarray:
     time_in_samples = int(fs * time_in_sec)
     time_axis = np.arange(time_in_samples) / fs
@@ -128,6 +164,7 @@ def main():
     # get target_centroid
     centroid_avg = get_centroid_avg(audio_array, fs)
     variance = calculate_spectral_variance(audio_array, centroid_avg, fs)
+    lower_variance_before, higher_variance_before = calculate_Lower_upper_spectral_variance(audio_array, centroid_avg, fs)
     print(f'centroid average = {centroid_avg}')
     print(f"initial variance: {variance}")
 
@@ -135,8 +172,13 @@ def main():
     bandwidth = get_bandwidth(args, centroid_avg)
     bp_audio = apply_bandpass(audio_array, band_width=bandwidth, fs=fs, offset_ratio=args.offset_ratio, verbose=False)
     normalised_audio = normalise_LUFS(bp_audio, -25, fs)
+    centroid_avg = get_centroid_avg(normalised_audio, fs)
     variance = calculate_spectral_variance(normalised_audio, centroid_avg, fs)
+    lower_variance_after, higher_variance_after = calculate_Lower_upper_spectral_variance(normalised_audio, centroid_avg, fs)
+    print(f'centroid average = {centroid_avg}')
     print(f"output variance: {variance}")
+    print(f"lower variance ratio: {lower_variance_after/lower_variance_before}")
+    print(f"higher variance ratio: {higher_variance_after/higher_variance_before}")
     sf.write(f'sounds/output/bp_w_{int(bandwidth)}_{file_name}', normalised_audio, fs)
 
 
